@@ -6,6 +6,7 @@ A beginner-friendly interface demonstrating:
 1. RAG question-answering with ChromaDB and source citations.
 2. Agentic decision making with ambiguity detection.
 3. Local Mock MCP email tool invocation and disk persistence in `sent_emails/`.
+4. Quick evaluation test cases with official questions and correct answers.
 """
 
 import os
@@ -59,10 +60,23 @@ st.markdown("""
         border-radius: 6px;
         margin-top: 0.5rem;
     }
-    .email-header {
-        font-weight: 600;
-        color: #065F46;
+    .notfound-box {
+        background-color: #FEF2F2;
+        border: 1px solid #FECACA;
+        border-left: 4px solid #EF4444;
+        padding: 0.8rem 1rem;
+        border-radius: 6px;
+        margin-top: 0.5rem;
+        font-weight: 500;
+        white-space: pre-line;
+    }
+    .eval-card {
+        background-color: #F1F5F9;
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+        padding: 0.6rem 0.8rem;
         margin-bottom: 0.5rem;
+        font-size: 0.85rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -78,17 +92,30 @@ if "messages" not in st.session_state:
                 "Hello! I am your **Meeting Intelligence & Follow-up Assistant**.\n\n"
                 "I can answer questions based strictly on your meeting transcripts and draft follow-up emails "
                 "via our local MCP mock email server.\n\n"
-                "**Try asking:**\n"
+                "**Try asking or click the evaluation tests in the sidebar:**\n"
                 "- *\"What is David responsible for?\"*\n"
                 "- *\"What database did the team choose?\"*\n"
                 "- *\"Send David an email reminding him about his authentication task.\"*\n"
                 "- *\"Send Sarah an email about her deadline.\"*\n"
-                "- *\"What did Michael agree to do?\"*"
+                "- *\"What did Michael agree to do?\"*\n"
+                "- *\"Send Anjali a follow-up email about the database migration.\"*"
             ),
             "sources": "",
             "type": "welcome"
         }
     ]
+
+if "pending_input" not in st.session_state:
+    st.session_state.pending_input = None
+
+# Initialize RAG Pipeline and Agent in session state
+if "rag" not in st.session_state:
+    st.session_state.rag = get_rag_pipeline()
+rag = st.session_state.rag
+
+if "agent" not in st.session_state:
+    st.session_state.agent = MeetingAssistantAgent(rag_pipeline=rag)
+agent = st.session_state.agent
 
 # -----------------------------------------------------------------------------
 # Sidebar: Settings, Sent Emails & Quick Evaluation Prompts
@@ -107,43 +134,85 @@ with st.sidebar:
 
     if api_key_input:
         st.success("🟢 OpenAI API Configured", icon="✅")
+        if rag.api_key != api_key_input:
+            st.session_state.rag = get_rag_pipeline(api_key=api_key_input)
+            st.session_state.agent = MeetingAssistantAgent(rag_pipeline=st.session_state.rag)
+            st.rerun()
     else:
-        st.info("🟡 Using Local Grounded Engine (Offline Evaluation Mode)", icon="ℹ️")
-
-    # Initialize RAG and Agent with key
-    rag = get_rag_pipeline(api_key=api_key_input if api_key_input else None)
-    agent = get_agent(rag_pipeline=rag)
+        st.info("🟡 Using Local Grounded Engine (Evaluation Mode)", icon="ℹ️")
 
     st.divider()
 
-    # Index management
+    # Knowledge Base Controls
     st.subheader("📚 Meeting Knowledge Base")
     doc_count = rag.collection.count()
     st.caption(f"**ChromaDB Chunks Indexed:** `{doc_count}`")
 
-    if st.button("🔄 Re-index Transcripts", use_container_width=True):
-        count = rag.ingest_documents()
-        st.success(f"Indexed {count} chunks from data/!")
-        st.rerun()
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🔄 Re-index", use_container_width=True):
+            count = rag.ingest_documents()
+            st.success(f"Indexed {count} chunks!")
+            st.rerun()
+    with col_btn2:
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            agent.reset_state()
+            st.session_state.messages = [st.session_state.messages[0]]
+            st.session_state.pending_input = None
+            st.rerun()
 
     st.divider()
 
-    # Quick test prompts for evaluator
+    # Evaluation Test Prompts Section
     st.subheader("🧪 Evaluation Test Prompts")
-    st.caption("Click any test case to run it immediately:")
+    st.caption("Click any test case to run it immediately or view the expected correct answer:")
 
-    eval_prompts = [
-        ("Test 1: David's Tasks", "What is David responsible for?"),
-        ("Test 2: Database Choice", "What database did the team choose?"),
-        ("Test 3: Send David Email", "Send David an email reminding him about his authentication task."),
-        ("Test 4: Ambiguous Request (Sarah)", "Send Sarah an email about her deadline."),
-        ("Test 5: Michael Not Found", "What did Michael agree to do?"),
+    eval_scenarios = [
+        {
+            "id": 1,
+            "title": "Test 1: David's Tasks",
+            "query": "What is David responsible for?",
+            "expected": "Mentions authentication module (Sep 22) and deployment configuration (Sep 28) with citations from meeting1.txt and meeting3.txt."
+        },
+        {
+            "id": 2,
+            "title": "Test 2: Database Decision",
+            "query": "What database did the team choose?",
+            "expected": "PostgreSQL (Project Alpha Planning, September 10, 2026, meeting1.txt)."
+        },
+        {
+            "id": 3,
+            "title": "Test 3: Send David Email",
+            "query": "Send David an email reminding him about his authentication task.",
+            "expected": "Email generated strictly from facts and sent via MCP mock email tool to sent_emails/."
+        },
+        {
+            "id": 4,
+            "title": "Test 4: Ambiguous Request (Sarah)",
+            "query": "Send Sarah an email about her deadline.",
+            "expected": "Detects ambiguity between 2 tasks (UI design by Sep 18 vs API documentation by Sep 20), halts MCP execution, and requests clarification."
+        },
+        {
+            "id": 5,
+            "title": "Test 5: Michael Not Found",
+            "query": "What did Michael agree to do?",
+            "expected": "No relevant meeting information found. (Michael is absent from transcripts)."
+        },
+        {
+            "id": 6,
+            "title": "Test 6: Missing Info / Out-of-Scope",
+            "query": "Send Anjali a follow-up email about the database migration.",
+            "expected": "No relevant meeting information found.\nEmail was not sent"
+        }
     ]
 
-    selected_eval_prompt = None
-    for label, prompt_text in eval_prompts:
-        if st.button(label, use_container_width=True):
-            selected_eval_prompt = prompt_text
+    for scenario in eval_scenarios:
+        with st.expander(f"📌 {scenario['title']}", expanded=False):
+            st.markdown(f"**Question:**\n`{scenario['query']}`")
+            st.markdown(f"**Expected / Correct Answer:**\n*{scenario['expected']}*")
+            if st.button(f"▶️ Run Test {scenario['id']}", key=f"eval_btn_{scenario['id']}", use_container_width=True):
+                st.session_state.pending_input = scenario["query"]
+                st.rerun()
 
     st.divider()
 
@@ -180,79 +249,76 @@ st.markdown(
 # -----------------------------------------------------------------------------
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        msg_type = msg.get("type", "general")
+        content = msg.get("content", "")
+
+        if msg_type == "email_sent":
+            st.success("✉️ **Email successfully dispatched via Local Mock MCP Tool!**")
+            st.markdown(content)
+        elif msg_type == "clarification_needed":
+            st.warning("⚠️ **Ambiguity Detected**")
+            st.markdown(content)
+        elif msg_type == "not_found":
+            st.error("🔍 **Information Not Found**")
+            st.markdown(content)
+        else:
+            st.markdown(content)
         
         # Render citations if present
         if msg.get("sources"):
-            with st.expander("📖 Source Citation", expanded=False):
+            with st.expander("📖 Source Citation", expanded=True):
                 st.markdown(f'<div class="source-box">{msg["sources"]}</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # Handle Clarification Quick-Select Buttons (if agent is waiting for user choice)
 # -----------------------------------------------------------------------------
-clarification_input = None
+clarification_choice = None
 if agent.pending_clarification:
     st.info("💡 **Agent needs clarification:** Please select which task you'd like to include in the email:")
     col1, col2 = st.columns(2)
     tasks = agent.pending_clarification.get("tasks", [])
     if len(tasks) >= 1:
         with col1:
-            if st.button(f"1. {tasks[0]['label']} ({tasks[0]['deadline']})", use_container_width=True):
-                clarification_input = "1"
+            if st.button(f"1. {tasks[0]['label']} ({tasks[0]['deadline']})", key="clarify_btn_1", use_container_width=True):
+                clarification_choice = "1"
     if len(tasks) >= 2:
         with col2:
-            if st.button(f"2. {tasks[1]['label']} ({tasks[1]['deadline']})", use_container_width=True):
-                clarification_input = "2"
+            if st.button(f"2. {tasks[1]['label']} ({tasks[1]['deadline']})", key="clarify_btn_2", use_container_width=True):
+                clarification_choice = "2"
 
 # -----------------------------------------------------------------------------
-# Process Input
+# Process Input (from Chat Input, Evaluation Buttons, or Clarification Buttons)
 # -----------------------------------------------------------------------------
 user_query = st.chat_input("Type a question or email request (e.g. 'What is David responsible for?')...")
 
-# Determine active prompt (from chat_input, quick eval buttons, or clarification button)
-active_input = clarification_input or selected_eval_prompt or user_query
+# Check which input was triggered
+active_input = None
+if st.session_state.pending_input:
+    active_input = st.session_state.pending_input
+    st.session_state.pending_input = None
+elif clarification_choice:
+    active_input = clarification_choice
+elif user_query:
+    active_input = user_query
 
 if active_input:
-    # 1. Append and display user message
-    st.session_state.messages.append({"role": "user", "content": active_input})
-    with st.chat_message("user"):
-        st.markdown(active_input)
+    # 1. Append user message to history
+    st.session_state.messages.append({"role": "user", "content": active_input, "type": "user_input"})
 
     # 2. Process via Agent
-    with st.chat_message("assistant"):
-        with st.spinner("Processing request..."):
-            response = agent.process_request(active_input)
-            
-            ans_text = response.get("answer", "")
-            citations = response.get("formatted_sources", "")
-            resp_type = response.get("response_type", "general")
+    response = agent.process_request(active_input)
+    
+    ans_text = response.get("answer", "")
+    citations = response.get("formatted_sources", "")
+    resp_type = response.get("response_type", "general")
 
-            # Display response
-            if resp_type == "email_sent":
-                st.success("✉️ **Email successfully dispatched via Local Mock MCP Tool!**")
-                st.markdown(ans_text)
-            elif resp_type == "clarification_needed":
-                st.warning("⚠️ **Ambiguity Detected**")
-                st.markdown(ans_text)
-            elif resp_type == "not_found":
-                st.error("🔍 **Information Not Found**")
-                st.markdown(ans_text)
-            else:
-                st.markdown(ans_text)
+    # 3. Append assistant response to history
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": ans_text,
+        "sources": citations,
+        "type": resp_type
+    })
 
-            # Display citations if available
-            if citations:
-                with st.expander("📖 Source Citation", expanded=True):
-                    st.markdown(f'<div class="source-box">{citations}</div>', unsafe_allow_html=True)
-
-            # Save to chat history
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": ans_text,
-                "sources": citations,
-                "type": resp_type
-            })
-
-    # Rerun to update sidebar email list and button state if an email was sent
-    if resp_type == "email_sent":
-        st.rerun()
+    # 4. Rerun so the new message and UI state update immediately
+    st.rerun()

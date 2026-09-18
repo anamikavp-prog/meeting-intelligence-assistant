@@ -34,7 +34,7 @@ class MeetingAssistantAgent:
 
     def is_email_request(self, text: str) -> bool:
         """
-        Determines whether the user is requesting to send or compose an email.
+        Determines whether the user is requesting to send or compose an email / follow-up.
         """
         patterns = [
             r"\bsend\b.*\bemail\b",
@@ -42,6 +42,10 @@ class MeetingAssistantAgent:
             r"\bwrite\b.*\bemail\b",
             r"\bshoot\b.*\bemail\b",
             r"\bremind\b.*\bemail\b",
+            r"\bfollow-up\b",
+            r"\bsend\b.*\bfollow-up\b",
+            r"\bmail\b",
+            r"\bmessage\b",
         ]
         text_lower = text.lower()
         return any(re.search(p, text_lower) for p in patterns)
@@ -49,17 +53,19 @@ class MeetingAssistantAgent:
     def extract_person_name(self, text: str) -> Optional[str]:
         """
         Extracts participant name mentioned in user query.
+        Recognizes known participants as well as any recipient name.
         """
-        known_participants = ["David", "Sarah", "Mike", "John"]
+        known_participants = ["David", "Sarah", "Mike", "John", "Anjali", "Michael", "Alice", "Bob"]
         for p in known_participants:
             if re.search(rf"\b{p}\b", text, re.IGNORECASE):
-                return p
+                return p.capitalize()
 
-        # Check for other names e.g. Michael, Alice, Bob
-        other_names = ["Michael", "Alice", "Bob", "Charlie", "Peter", "Jane"]
-        for o in other_names:
-            if re.search(rf"\b{o}\b", text, re.IGNORECASE):
-                return o
+        # Regex patterns to capture target names (e.g. "Send <Name>", "email <Name>", "to <Name>")
+        name_match = re.search(r"\b(?:send|email|remind|to|with)\s+([A-Z][a-z]+)", text, re.IGNORECASE)
+        if name_match:
+            candidate = name_match.group(1).capitalize()
+            if candidate.lower() not in ["a", "an", "the", "him", "her", "them", "me", "us", "this", "that"]:
+                return candidate
 
         return None
 
@@ -255,32 +261,43 @@ class MeetingAssistantAgent:
             # Search tasks for this person
             tasks = self.parse_tasks_for_person(recipient)
 
-            # Case: Person not in transcripts (e.g. Michael)
+            # Case 1: Person not in transcripts (e.g. Anjali, Michael)
             if not tasks:
                 return {
                     "response_type": "not_found",
-                    "answer": f"The requested information regarding {recipient} could not be found in the meeting transcripts. No email was sent.",
+                    "answer": "No relevant meeting information found.\nEmail was not sent",
                     "formatted_sources": ""
                 }
 
-            # Check if user input already narrows down to a specific task
-            # e.g. "Send David an email reminding him about his authentication task"
+            # Check if user input mentions a specific topic (e.g. "about...", "regarding...")
+            topic_match = re.search(r"(?:about|regarding|for|reminding\s+\w+\s+about)\s+(.+)$", clean_input, re.IGNORECASE)
+            specified_topic = topic_match.group(1).strip().rstrip(".!?") if topic_match else ""
+            is_generic = any(g in specified_topic.lower() for g in ["deadline", "task", "her deadline", "his deadline", "the deadline", "their deadline", "meeting", "the meeting"]) or not specified_topic
+
             matching_tasks = []
             for t in tasks:
                 # Check for keywords like "authentication", "ui design", "api", "deployment"
                 keywords = [
                     w.lower() for w in re.findall(r"\b[A-Za-z]{3,}\b", t["short_task"])
-                    if w.lower() not in ["and", "the", "for", "prepare", "implement", "integrate"]
+                    if w.lower() not in ["and", "the", "for", "prepare", "implement", "integrate", "review", "coordinate"]
                 ]
                 if any(kw in clean_input.lower() for kw in keywords):
                     matching_tasks.append(t)
 
-            # If user specified a distinct task
+            # Case 2: Specific topic requested, but person has no matching task (e.g. "Send David an email about database migration")
+            if specified_topic and not is_generic and not matching_tasks:
+                return {
+                    "response_type": "not_found",
+                    "answer": "No relevant meeting information found.\nEmail was not sent",
+                    "formatted_sources": ""
+                }
+
+            # Case 3: Exactly one matching task found
             if len(matching_tasks) == 1:
                 return self.execute_send_email(recipient, matching_tasks[0])
 
-            # If person only has 1 task in total
-            if len(tasks) == 1 and not matching_tasks:
+            # Case 4: Person has only 1 task in total and topic was generic or unspecified
+            if len(tasks) == 1 and is_generic:
                 return self.execute_send_email(recipient, tasks[0])
 
             # Ambiguity detected: Multiple tasks found and request is ambiguous!

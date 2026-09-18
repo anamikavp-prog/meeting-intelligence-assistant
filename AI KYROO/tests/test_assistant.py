@@ -91,6 +91,15 @@ def test_not_found_michael(shared_agent):
     assert len(res.get("sources", [])) == 0, "Should not cite sources for absent participant."
 
 
+def test_missing_info_email_anjali(shared_agent):
+    """Test 6: Send Anjali a follow-up email about the database migration. (Missing information)"""
+    shared_agent.reset_state()
+    res = shared_agent.process_request("Send Anjali a follow-up email about the database migration.")
+    assert res["response_type"] == "not_found", f"Expected not_found, got {res['response_type']}"
+    assert "no relevant meeting information found" in res["answer"].lower(), "Expected 'No relevant meeting information found.'"
+    assert "email was not sent" in res["answer"].lower(), "Expected 'Email was not sent'"
+
+
 def run_tests():
     """Standalone CLI runner for direct execution."""
     print("=" * 70)
@@ -126,8 +135,13 @@ def run_tests():
     print(">>> TEST 5 PASSED: Handled missing participant with clear not-found response.")
     passed_count += 1
 
+    print("\n[TEST 6] Query: 'Send Anjali a follow-up email about the database migration.'")
+    test_missing_info_email_anjali(agent)
+    print(">>> TEST 6 PASSED: Handled missing info email request with 'No relevant meeting information found. Email was not sent'.")
+    passed_count += 1
+
     print("\n" + "=" * 70)
-    print(f"EVALUATION COMPLETE: {passed_count}/5 TEST CASES PASSED SUCCESSFULLY (100%)")
+    print(f"EVALUATION COMPLETE: {passed_count}/6 TEST CASES PASSED SUCCESSFULLY (100%)")
     print("=" * 70)
 
 
