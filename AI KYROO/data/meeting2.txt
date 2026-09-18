@@ -1,0 +1,14 @@
+Meeting Title: API Integration Meeting
+Date: September 12, 2026
+Participants: John, Mike, Sarah
+
+Discussion:
+The engineering team convened to establish interface protocols for external client integrations and payments. The team discussed GraphQL versus REST and agreed that REST provides straightforward compatibility with external partners. Mike and Sarah agreed to divide tasks between backend gateway wiring and partner-facing documentation.
+
+Decisions:
+- REST APIs will be used.
+
+Action Items:
+- Mike: Integrate payment gateway by September 25, 2026.
+- Sarah: Prepare API documentation by September 20, 2026.
+- John: Review API integration on September 27, 2026.

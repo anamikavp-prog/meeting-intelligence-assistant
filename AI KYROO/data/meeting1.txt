@@ -1,0 +1,14 @@
+Meeting Title: Project Alpha Planning
+Date: September 10, 2026
+Participants: John, Sarah, David
+
+Discussion:
+The team kicked off Project Alpha to outline architectural decisions, team responsibilities, and key project milestones. John emphasized adhering strictly to the end-of-month deliverable. The engineering team discussed persistence layers and chose PostgreSQL for its strong ACID compliance and relational integrity.
+
+Decisions:
+- PostgreSQL will be used as the database.
+
+Action Items:
+- John: Overall project deadline is September 30, 2026.
+- Sarah: Prepare UI design by September 18, 2026.
+- David: Implement authentication module by September 22, 2026.
